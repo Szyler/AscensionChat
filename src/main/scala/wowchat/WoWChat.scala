@@ -78,7 +78,7 @@ object WoWChat extends StrictLogging {
 
   private def checkForNewVersion = {
     // This is JSON, but I really just didn't want to import a full blown JSON library for one string.
-    val data = Source.fromURL("https://github.com/Szyler/AscensionChat/releases/latest").mkString
+    val data = Source.fromURL("https://api.github.com/repos/Szyler/AscensionChat/releases/latest").mkString
     val regex = "\"tag_name\":\"(.+?)\",".r
     val repoTagName = regex
       .findFirstMatchIn(data)
