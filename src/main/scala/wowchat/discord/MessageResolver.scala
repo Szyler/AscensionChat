@@ -53,6 +53,12 @@ class MessageResolver(jda: JDA) {
     pass2.replaceAllIn(pass1.replaceAllIn(message.replace("$", "\\$"), _.group(1)), "")
   }
 
+  def stripTextureCoding(message: String): String = {
+    val thisString = s"\\|T(.*?)\\|t".r
+
+    thisString.replaceAllIn(message.replace("$", "\\$"), "")
+  }
+
   def resolveTags(discordChannel: TextChannel, message: String, onError: String => Unit): String = {
     // OR non-capturing regex didn't work for these for some reason
     val regexes = Seq("\"@(.+?)\"", "@([\\w]+)").map(_.r)
@@ -187,7 +193,7 @@ class MessageResolverWotLK(jda: JDA) extends MessageResolverTBC(jda) {
     "spell" -> "\\|Htrade:(\\d+):.+?\\|h\\[(.+?)\\]\\|h\\s?".r
   )
 
-  override protected val linkSite = "https://classlessdb.com/"
+  override protected val linkSite = "https://db.ascension.gg/"
 }
 
 class MessageResolverCataclysm(jda: JDA) extends MessageResolverWotLK(jda) {
