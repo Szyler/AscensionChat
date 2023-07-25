@@ -63,6 +63,8 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
           
           if (message == "?who" || message == "?online") {
             channel.sendMessage("?who").queue()
+          } else if (message.startsWith("?invite")) {
+            channel.sendMessage(message).queue()
           }
           
           val parsedResolvedTags = from.map(_ => {
@@ -114,18 +116,14 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
       return
     }
 
-    Global.wowToDiscord.get((ChatEvents.CHAT_MSG_GUILD, None))
-      .foreach(_.foreach {
-        case (discordChannel, _) =>
-          val formatted = notificationConfig
-            .format
-            .replace("%time", Global.getTime)
-            .replace("%user", name)
-            .replace("%achievement", messageResolver.resolveAchievementId(achievementId))
+	  val formatted = notificationConfig
+  	.format
+	  .replace("%time", Global.getTime)
+	  .replace("%user", name)
+	  .replace("%achievement", messageResolver.resolveAchievementId(achievementId))
 
-          discordChannel.sendMessage(formatted).queue()
-      })
-  }
+	  Global.discord.sendGuildNotification("achievement", formatted)
+}
 
   override def onStatusChange(event: StatusChangeEvent): Unit = {
     event.getNewStatus match {
@@ -179,26 +177,19 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
           })
 
         // build guild notification maps
-        val guildEventChannels = Global.config.guildConfig.notificationConfigs
-          .filter {
-            case (key, notificationConfig) =>
-              notificationConfig.enabled
-          }
-          .flatMap {
-            case (key, notificationConfig) =>
-              notificationConfig.channel.fold[Option[(String, String)]](None)(channel => Some(channel -> key))
-          }
-
         discordTextChannels.foreach(channel => {
-          guildEventChannels
+        Global.config.guildConfig.notificationConfigs
             .filter {
-              case (name, _) =>
-                name.equalsIgnoreCase(channel.getName) ||
-                name == channel.getId
+              case (_, notificationConfig) =>
+			  	      notificationConfig.enabled &&
+				        !notificationConfig.channel.isEmpty &&
+                (notificationConfig.channel.get.equalsIgnoreCase(channel.getName) ||
+                notificationConfig.channel.get == channel.getId)
             }
             .foreach {
-              case (_, notificationKey) =>
-                Global.guildEventsToDiscord.addBinding(notificationKey, channel)
+              case (key, _) =>
+			          logger.info(s"Adding Binding ($key -> ${channel.getName})")
+                Global.guildEventsToDiscord.addBinding(key, channel)
             }
         })
 

@@ -17,6 +17,7 @@ trait GamePackets {
   val SMSG_GUILD_QUERY = 0x55
   val CMSG_WHO = 0x62
   val SMSG_WHO = 0x63
+  val CMSG_GUILD_INVITE  = 0x82
   val CMSG_GUILD_ROSTER = 0x89
   val SMSG_GUILD_ROSTER = 0x8A
   val SMSG_GUILD_EVENT = 0x92
@@ -165,7 +166,7 @@ trait GamePackets {
 
     def valueOf(charClass: Byte): String = {
       charClass match {
-        case CLASS_WARRIOR => "Warrior"
+/*        case CLASS_WARRIOR => "Warrior"
         case CLASS_PALADIN => "Paladin"
         case CLASS_HUNTER => "Hunter"
         case CLASS_ROGUE => "Rogue"
@@ -174,9 +175,9 @@ trait GamePackets {
         case CLASS_SHAMAN => "Shaman"
         case CLASS_MAGE => "Mage"
         case CLASS_WARLOCK => "Warlock"
-        case CLASS_MONK => ""
+        case CLASS_MONK => "Monk"
         case CLASS_DRUID => "Druid"
-        case _ => "Unknown"
+*/        case _ => ""
       }
     }
   }

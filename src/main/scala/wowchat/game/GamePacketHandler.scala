@@ -205,6 +205,32 @@ class GamePacketHandler(realmId: Int, realmName: String, sessionKey: Array[Byte]
     })
   }
 
+  protected def sendGuildInvite(target: String): Unit = {
+    ctx.foreach(ctx => {
+      val out = PooledByteBufAllocator.DEFAULT.buffer(64, 64)
+      out.writeBytes(target.getBytes("UTF-8"))
+	  out.writeByte(0)
+      val packet = Packet(CMSG_GUILD_INVITE, out)
+      ctx.writeAndFlush(packet)
+
+      logger.info(s"target | bytes: ${target} -- ${target.getBytes("UTF-8")}")
+    })
+  }
+
+  override def handleGuildInvite(target: String): Option[String] = {
+    if (Global.config.discord.enableInviteCommand) {
+      if (Global.config.discord.bannedInviteList.contains(target.toLowerCase)) {
+        Some(s"Player ${target} is banned.  Invite not sent.")
+      } else {
+        sendGuildInvite(target)
+        None
+        // Some(s"Invite sent to ${target}")
+      }
+    } else {
+      Some("Command Disabled.")
+    }
+  }
+
   protected def buildWhoMessage(name: String): ByteBuf = {
     val byteBuf = PooledByteBufAllocator.DEFAULT.buffer(64, 64)
     byteBuf.writeIntLE(0)  // level min

@@ -50,6 +50,11 @@ object CommandHandler extends StrictLogging {
             fromChannel.sendMessage(NOT_ONLINE).queue()
             return true
           })(_.handleGmotd())
+		case "invite" =>
+		  Global.game.fold({
+            fromChannel.sendMessage(NOT_ONLINE).queue()
+            return true
+          })(_.handleGuildInvite(splt(1)))
       }
     }.fold(throwable => {
       // command not found, should send to wow chat
