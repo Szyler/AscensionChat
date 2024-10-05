@@ -186,7 +186,7 @@ class MessageResolverTBC(jda: JDA) extends MessageResolver(jda) {
     "quest" -> "\\|.+?\\|Hquest:(\\d+):.+?\\|h\\[(.+?)\\]\\|h\\|r\\s?".r
   )
 
-  override protected val linkSite = "http://tbc-twinhead.twinstar.cz"
+  override protected val linkSite = "https://db.ascension.gg/"
 }
 
 class MessageResolverWotLK(jda: JDA) extends MessageResolverTBC(jda) {
