@@ -48,7 +48,7 @@ class GamePacketHandlerCataclysm15595(realmId: Int, realmName: String, sessionKe
   }
 
   override protected def parseAuthChallenge(msg: Packet): AuthChallengeMessage = {
-    val account = Global.config.wow.account
+    val account = Global.config.wow.account.getBytes("utf-8")
 
     msg.byteBuf.skipBytes(32) // 32 bytes of random data?
     val serverSeed = msg.byteBuf.readInt

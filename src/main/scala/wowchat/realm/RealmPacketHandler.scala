@@ -1,7 +1,5 @@
 package wowchat.realm
 
-import java.security.MessageDigest
-
 import wowchat.common._
 import com.typesafe.scalalogging.StrictLogging
 import io.netty.buffer.{ByteBuf, PooledByteBufAllocator}
@@ -12,10 +10,9 @@ private[realm] case class RealmList(name: String, address: String, realmId: Byte
 class RealmPacketHandler(realmConnectionCallback: RealmConnectionCallback)
   extends ChannelInboundHandlerAdapter with StrictLogging {
 
-  private val srpClient = new SRPClient
+  private var handshake : HandshakeAscension = _
   private var ctx: Option[ChannelHandlerContext] = None
   private var expectedDisconnect = false
-  private var sessionKey: Array[Byte] = _
   // Issue 57, certain servers return logon proof packet for the 2nd time when asking for friends list with an error code.
   // Implement a state to ignore it if/when it comes a second time
   private var logonState = 0
@@ -64,41 +61,50 @@ class RealmPacketHandler(realmConnectionCallback: RealmConnectionCallback)
 
   override def channelActive(ctx: ChannelHandlerContext): Unit = {
     logger.info(s"Connected! Sending account login information...")
+
     this.ctx = Some(ctx)
+
+    // todo remove TBC Cataclysm MoP implementations.
+    //  this is too derived to refactor to support multiple versions.
+    //  need to add a separate expansion enumeration element, but the checks are all over the place.
+    handshake = new HandshakeAscension
+
     val version = WowChatConfig.getVersion.split("\\.").map(_.toByte)
-    val accountConfig = Global.config.wow.account
     val platformString = Global.config.wow.platform match {
       case Platform.Windows => "Win"
       case Platform.Mac => "OSX"
     }
     val localeString = Global.config.wow.locale
 
-    val byteBuf = PooledByteBufAllocator.DEFAULT.buffer(50, 100)
+    val login = Global.config.wow.account.getBytes("utf-8")
+    val password = Global.config.wow.password.getBytes("utf-8")
+    val (password_encrypted, password_encrypted_tag) = handshake.encrypt_password(password)
 
-    // seems to be 3 for vanilla and 8 for bc/wotlk
-    if (WowChatConfig.getExpansion == WowExpansion.Vanilla) {
-      byteBuf.writeByte(3)
-    } else {
-      byteBuf.writeByte(8)
-    }
-    byteBuf.writeShortLE(30 + accountConfig.length) // size
-    byteBuf.writeIntLE(ByteUtils.stringToInt("WoW"))
-    byteBuf.writeByte(version(0))
-    byteBuf.writeByte(version(1))
-    byteBuf.writeByte(version(2))
-    byteBuf.writeShortLE(WowChatConfig.getBuild)
-    byteBuf.writeIntLE(ByteUtils.stringToInt("x86"))
-    byteBuf.writeIntLE(ByteUtils.stringToInt(platformString))
-    byteBuf.writeIntLE(ByteUtils.stringToInt(localeString))
-    byteBuf.writeIntLE(0)
-    byteBuf.writeByte(127)
-    byteBuf.writeByte(0)
-    byteBuf.writeByte(0)
-    byteBuf.writeByte(1)
-    byteBuf.writeByte(accountConfig.length)
-    byteBuf.writeBytes(accountConfig)
 
-    ctx.writeAndFlush(Packet(RealmPackets.CMD_AUTH_LOGON_CHALLENGE, byteBuf))
+    val data = PooledByteBufAllocator.DEFAULT.buffer(351, 423)
+    data.writeByte(8) // protocol version
+    data.writeShortLE(348 + password.length) // size
+    data.writeIntLE(ByteUtils.stringToInt("WoW"))
+    data.writeByte(version(0))
+    data.writeByte(version(1))
+    data.writeByte(version(2))
+    data.writeShortLE(WowChatConfig.getRealmBuild)
+    data.writeIntLE(ByteUtils.stringToInt("x86"))
+    data.writeIntLE(ByteUtils.stringToInt(platformString))
+    data.writeIntLE(ByteUtils.stringToInt(localeString))
+    data.writeIntLE(0)
+    data.writeByte(127)
+    data.writeByte(0)
+    data.writeByte(0)
+    data.writeByte(1)
+    data.writeBytes(login)
+    data.writeZero(255 - login.length) // todo check configuration input length before starting
+    data.writeBytes(handshake.key_public)
+    data.writeBytes(handshake.random_nonce)
+    data.writeBytes(password_encrypted_tag)
+    data.writeIntLE(password.length)
+    data.writeBytes(password_encrypted)
+    ctx.writeAndFlush(Packet(RealmPackets.CMD_AUTH_LOGON_CHALLENGE, data))
 
     super.channelActive(ctx)
   }
@@ -132,44 +138,28 @@ class RealmPacketHandler(realmConnectionCallback: RealmConnectionCallback)
       return
     }
 
-    val B = toArray(msg.byteBuf, 32)
-    val gLength = msg.byteBuf.readByte
-    val g = toArray(msg.byteBuf, gLength)
-    val nLength = msg.byteBuf.readByte
-    val n = toArray(msg.byteBuf, nLength)
-    val salt = toArray(msg.byteBuf, 32)
-    val unk3 = toArray(msg.byteBuf, 16)
-    val securityFlag = msg.byteBuf.readByte
-    if (securityFlag != 0) {
+    val srb_b = toArray(msg.byteBuf, 32)
+    val srp_g_length = msg.byteBuf.readByte
+    val srp_g = toArray(msg.byteBuf, srp_g_length)
+    val srp_n_length = msg.byteBuf.readByte
+    val srp_n = toArray(msg.byteBuf, srp_n_length)
+    val srp_salt = toArray(msg.byteBuf, 32)
+    val srp_unknown = toArray(msg.byteBuf, 16)
+    val security_flag = msg.byteBuf.readByte
+    if (security_flag != 0) {
       logger.error(s"Two factor authentication is enabled for this account. Please disable it or use another account.")
       ctx.get.close
       realmConnectionCallback.error
       return
     }
 
-    srpClient.step1(
-      Global.config.wow.account,
-      Global.config.wow.password,
-      BigNumber(B),
-      BigNumber(g),
-      BigNumber(n),
-      BigNumber(salt)
-    )
-
-    sessionKey = srpClient.K.asByteArray(40)
-
-    val aArray = srpClient.A.asByteArray(32)
-    val ret = PooledByteBufAllocator.DEFAULT.buffer(74, 74)
-    ret.writeBytes(aArray)
-    ret.writeBytes(srpClient.M.asByteArray(20, false))
-    val md = MessageDigest.getInstance("SHA1")
-    md.update(aArray)
-    md.update(buildCrcHashes.getOrElse((WowChatConfig.getBuild, Global.config.wow.platform), new Array[Byte](20)))
-    ret.writeBytes(md.digest)
-    ret.writeByte(0)
-    ret.writeByte(0)
-
-    ctx.get.writeAndFlush(Packet(RealmPackets.CMD_AUTH_LOGON_PROOF, ret))
+    val data = PooledByteBufAllocator.DEFAULT.buffer(74, 74)
+    data.writeBytes(Array.fill[Byte](32)(0))
+    data.writeBytes(Array.fill[Byte](20)(0))
+    data.writeBytes(Array.fill[Byte](20)(0))
+    data.writeByte(0)
+    data.writeByte(0)
+    ctx.get.writeAndFlush(Packet(RealmPackets.CMD_AUTH_LOGON_PROOF, data))
   }
 
   private def handle_CMD_AUTH_LOGON_PROOF(msg: Packet): Unit = {
@@ -188,8 +178,8 @@ class RealmPacketHandler(realmConnectionCallback: RealmConnectionCallback)
       return
     }
 
-    val proof = toArray(msg.byteBuf, 20, false)
-    if (!proof.sameElements(srpClient.generateHashLogonProof)) {
+    val proof = toArray(msg.byteBuf, handshake.proof_2.length, false)
+    if (!proof.sameElements(handshake.proof_2)) {
       logger.error("Logon proof generated by client and server differ. Something is very wrong! Will try to reconnect in a moment.")
       expectedDisconnect = true
       ctx.get.close
@@ -202,9 +192,9 @@ class RealmPacketHandler(realmConnectionCallback: RealmConnectionCallback)
 
     // ask for realm list
     logger.info(s"Successfully logged into realm server. Looking for realm ${Global.config.wow.realmlist.name}")
-    val ret = PooledByteBufAllocator.DEFAULT.buffer(4, 4)
-    ret.writeIntLE(0)
-    ctx.get.writeAndFlush(Packet(RealmPackets.CMD_REALM_LIST, ret))
+    val data = PooledByteBufAllocator.DEFAULT.buffer(4, 4)
+    data.writeIntLE(0)
+    ctx.get.writeAndFlush(Packet(RealmPackets.CMD_REALM_LIST, data))
   }
 
   private def handle_CMD_REALM_LIST(msg: Packet): Unit = {
@@ -225,7 +215,7 @@ class RealmPacketHandler(realmConnectionCallback: RealmConnectionCallback)
     } else {
       val splt = realms.head.address.split(":")
       val port = splt(1).toInt & 0xFFFF // some servers "overflow" the port on purpose to dissuade rudimentary bots
-      realmConnectionCallback.success(splt(0), port, realms.head.name, realms.head.realmId, sessionKey)
+      realmConnectionCallback.success(splt(0), port, realms.head.name, realms.head.realmId, handshake.key_session)
     }
     expectedDisconnect = true
     ctx.get.close

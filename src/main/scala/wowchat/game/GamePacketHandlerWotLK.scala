@@ -29,7 +29,7 @@ class GamePacketHandlerWotLK(realmId: Int, realmName: String, sessionKey: Array[
   ).map(_.toByte)
 
   override protected def parseAuthChallenge(msg: Packet): AuthChallengeMessage = {
-    val account = Global.config.wow.account
+    val account = Global.config.wow.account.getBytes("utf-8")
 
     msg.byteBuf.skipBytes(4) // wotlk
     val serverSeed = msg.byteBuf.readInt

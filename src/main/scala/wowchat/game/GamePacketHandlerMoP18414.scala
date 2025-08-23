@@ -254,7 +254,7 @@ class GamePacketHandlerMoP18414(realmId: Int, realmName: String, sessionKey: Arr
   }
 
   override protected def parseAuthChallenge(msg: Packet): AuthChallengeMessage = {
-    val account = Global.config.wow.account
+    val account = Global.config.wow.account.getBytes("utf-8")
 
     msg.byteBuf.skipBytes(35) // MoP - 35 bytes random data
     val serverSeed = msg.byteBuf.readInt
