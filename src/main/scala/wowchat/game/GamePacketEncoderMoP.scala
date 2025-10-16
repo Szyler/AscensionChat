@@ -25,7 +25,7 @@ class GamePacketEncoderMoP extends GamePacketEncoderCataclysm with GamePacketsMo
       crypt.encrypt(array.toArray)
     }
 
-//    logger.debug(f"SEND PACKET: ${msg.id}%04X - ${ByteUtils.toHexString(msg.byteBuf, true, false)}")
+    logger.debug(f"SEND PACKET: ${msg.id}%04X - ${ByteUtils.toHexString(msg.byteBuf, true, false)}")
 
     out.writeBytes(header)
     out.writeBytes(msg.byteBuf)

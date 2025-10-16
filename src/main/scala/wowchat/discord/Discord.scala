@@ -6,10 +6,13 @@ import com.typesafe.scalalogging.StrictLogging
 import com.vdurmont.emoji.EmojiParser
 import net.dv8tion.jda.api.JDABuilder
 import net.dv8tion.jda.api.JDA.Status
-import net.dv8tion.jda.api.entities.{Activity, ChannelType, MessageType}
+import net.dv8tion.jda.api.entities.{Activity, MessageType}
 import net.dv8tion.jda.api.entities.Activity.ActivityType
-import net.dv8tion.jda.api.events.{ShutdownEvent, StatusChangeEvent}
+import net.dv8tion.jda.api.entities.channel.ChannelType
+import net.dv8tion.jda.api.entities.channel.middleman.MessageChannel
+import net.dv8tion.jda.api.events.StatusChangeEvent
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent
+import net.dv8tion.jda.api.events.session.ShutdownEvent
 import net.dv8tion.jda.api.hooks.ListenerAdapter
 import net.dv8tion.jda.api.requests.{CloseCode, GatewayIntent}
 import net.dv8tion.jda.api.utils.MemberCachePolicy
@@ -19,13 +22,72 @@ import wowchat.game.GamePackets
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 
+object Discord {
+
+  def sendMessage(channel: MessageChannel, message: String): Unit = {
+    splitUpByLength(message, 2000).foreach(channel.sendMessage(_).queue)
+  }
+
+  private def splitUpByLength(message: String, maxLength: Int): Seq[String] = {
+    val retArr = mutable.ArrayBuffer.empty[String]
+
+    var tmp = message
+    while (tmp.length > maxLength) {
+      val subStr = tmp.substring(0, maxLength)
+      val spaceIndex = subStr.lastIndexOf(' ')
+      tmp = if (spaceIndex == -1) {
+        retArr += subStr
+        tmp.substring(maxLength)
+      } else {
+        retArr += subStr.substring(0, spaceIndex)
+        tmp.substring(spaceIndex + 1)
+      }
+    }
+
+    if (tmp.nonEmpty) {
+      retArr += tmp
+    }
+
+    retArr
+  }
+
+  private def splitUpMessageToWow(format: String, name: String, message: String): Seq[String] = {
+    val maxTmpLen = 255 - format
+      .replace("%time", Global.getTime)
+      .replace("%user", name)
+      .replace("%message", "")
+      .length
+
+    splitUpByLength(message, maxTmpLen)
+      .map(message => {
+        val formatted = format
+          .replace("%time", Global.getTime)
+          .replace("%user", name)
+          .replace("%message", message)
+
+        // If the final formatted message is a dot command, it should be disabled. Add a space in front.
+        if (formatted.startsWith(".")) {
+          s" $formatted"
+        } else {
+          formatted
+        }
+      })
+  }
+}
+
 class Discord(discordConnectionCallback: CommonConnectionCallback) extends ListenerAdapter
   with GamePackets with StrictLogging {
 
   private val jda = JDABuilder
-    .createDefault(Global.config.discord.token, GatewayIntent.GUILD_MESSAGES, GatewayIntent.GUILD_MEMBERS, GatewayIntent.GUILD_PRESENCES, GatewayIntent.GUILD_EMOJIS)
+    .createDefault(Global.config.discord.token,
+      GatewayIntent.GUILD_EXPRESSIONS,
+      GatewayIntent.GUILD_MEMBERS,
+      GatewayIntent.GUILD_MESSAGES,
+      GatewayIntent.GUILD_PRESENCES,
+      GatewayIntent.MESSAGE_CONTENT)
     .setMemberCachePolicy(MemberCachePolicy.ALL)
-    .disableCache(CacheFlag.VOICE_STATE)
+    .disableCache(CacheFlag.SCHEDULED_EVENTS,
+      CacheFlag.VOICE_STATE)
     .addEventListeners(this)
     .build
 
@@ -44,7 +106,7 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
   }
 
   def changeRealmStatus(message: String): Unit = {
-    changeStatus(ActivityType.DEFAULT, message)
+    changeStatus(ActivityType.CUSTOM_STATUS, message)
   }
 
   def sendMessageFromWow(from: Option[String], message: String, wowType: Byte, wowChannel: Option[String], gmMessage: Boolean = false): Unit = {
@@ -60,12 +122,16 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
       discordChannels.foreach {
         case (channel, channelConfig) =>
 		  if (!channelConfig.gmchat || (channelConfig.gmchat && gmMessage)) {
-            var errors = mutable.ArrayBuffer.empty[String]
+            val errors = mutable.ArrayBuffer.empty[String]
 
             if (message == "?who" || message == "?online") {
-              channel.sendMessage("?who").queue()
+              Discord.sendMessage(channel, "?who")
             } else if (message.startsWith("?invite ") || message.startsWith("?inv ") || message.startsWith("?ginvite ")) {
-              channel.sendMessage(message).queue()
+              Discord.sendMessage(channel, message)
+            } else if (message.startsWith("?promote ") || message.startsWith("?gpromote ")) {
+              Discord.sendMessage(channel, message)
+            } else if (message.startsWith("?demote ") || message.startsWith("?gdemote ")) {
+              Discord.sendMessage(channel, message)
             }
 
             val parsedResolvedTags = from.map(_ => {
@@ -87,16 +153,16 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
             val filter = shouldFilter(channelConfig.filters, formatted)
             logger.info(s"${if (filter) "FILTERED " else ""}WoW->Discord(${channel.getName}) $formatted")
             if (!filter) {
-              channel.sendMessage(formatted).queue()
+              Discord.sendMessage(channel, formatted)
             }
             if (Global.config.discord.enableTagFailedNotifications && !gmMessage) { // never whisper a gm about tag fails
               errors.foreach(error => {
                 Global.game.foreach(_.sendMessageToWow(ChatEvents.CHAT_MSG_WHISPER, error, from))
-                channel.sendMessage(error).queue()
+                Discord.sendMessage(channel, error)
               })
             }
 		  } else {
-//			logger.info(s"GM FILTERED WoW->Discord($from: ${channel.getName}) $message || $gmMessage || ${channelConfig.gmchat}")
+			logger.info(s"GM FILTERED WoW->Discord($from: ${channel.getName}) $message || $gmMessage || ${channelConfig.gmchat}")
 		  }
       }
     })
@@ -108,9 +174,9 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
           (ChatEvents.CHAT_MSG_GUILD, None), mutable.Set.empty
         ).map(_._1)
       )
-      .foreach(channel => { // TODO: Add a line with "check if variable enabled"
+      .foreach(channel => {
         logger.info(s"WoW->Discord(${channel.getName}) $message")
-        channel.sendMessage(message).queue()
+        Discord.sendMessage(channel, message)
       })
   }
 
@@ -120,14 +186,18 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
       return
     }
 
-	val formatted = notificationConfig
-	.format
-	.replace("%time", Global.getTime)
-	.replace("%user", name)
-	.replace("%achievement", messageResolver.resolveAchievementId(achievementId))
+    Global.wowToDiscord.get((ChatEvents.CHAT_MSG_GUILD, None))
+      .foreach(_.foreach {
+        case (discordChannel, _) =>
+          val formatted = notificationConfig
+            .format
+            .replace("%time", Global.getTime)
+            .replace("%user", name)
+            .replace("%achievement", messageResolver.resolveAchievementId(achievementId))
 
-	Global.discord.sendGuildNotification("achievement", formatted)
-}
+          Global.discord.sendGuildNotification("achievement", formatted)
+      })
+  }
 
   override def onStatusChange(event: StatusChangeEvent): Unit = {
     event.getNewStatus match {
@@ -157,7 +227,7 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
         eligibleDiscordChannels.foreach(channel => {
           configChannels
             .filter {
-              case (name, channelConfig) =>
+              case (name, _) =>
                 name.equalsIgnoreCase(channel.getName) ||
                 name == channel.getId
             }
@@ -216,7 +286,7 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
   override def onShutdown(event: ShutdownEvent): Unit = {
     event.getCloseCode match {
       case CloseCode.DISALLOWED_INTENTS =>
-        logger.error("Per new Discord rules, you must check the PRESENCE INTENT and SERVER MEMBERS INTENT boxes under \"Privileged Gateway Intents\" for this bot in the developer portal. You can find more info at https://discord.com/developers/docs/topics/gateway#privileged-intents")
+        logger.error("Per new Discord rules, you must check the PRESENCE INTENT, SERVER MEMBERS INTENT, and MESSAGE CONTENT INTENT boxes under \"Privileged Gateway Intents\" for this bot in the developer portal. You can find more info at https://discord.com/developers/docs/topics/gateway#privileged-intents")
       case _ =>
     }
   }
@@ -241,12 +311,11 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
     val channel = event.getChannel
     val channelId = channel.getId
     val channelName = event.getChannel.getName.toLowerCase
-    val effectiveName = event.getMember.getEffectiveName
+    val effectiveName = sanitizeName(event.getMember.getEffectiveName)
     val message = (sanitizeMessage(event.getMessage.getContentDisplay) +: event.getMessage.getAttachments.asScala.map(_.getUrl))
       .filter(_.nonEmpty)
       .mkString(" ")
-    val enableCommandsChannels = Global.config.discord.enableInviteChannels ++ Global.config.discord.enableKickChannels ++ Global.config.discord.enableWhoGmotdChannels
-//    logger.debug(s"RECV DISCORD MESSAGE: [${channel.getName}] [$effectiveName]: $message")
+    logger.debug(s"RECV DISCORD MESSAGE: [${channel.getName}] [$effectiveName]: $message")
 
     if (!CommandHandler(channel, message)) {
       // send to all configured wow channels
@@ -257,7 +326,7 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
           val finalMessages = if (shouldSendDirectly(message)) {
             Seq(message)
           } else {
-            splitUpMessage(channelConfig.format, effectiveName, message)
+            Discord.splitUpMessageToWow(channelConfig.format, effectiveName, message)
           }
 
           finalMessages.foreach(finalMessage => {
@@ -301,48 +370,13 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
       .exists(filters => filters.enabled && filters.patterns.exists(message.filter(_ >= ' ').matches))
   }
 
+  def sanitizeName(name: String): String = {
+    name.replace("|", "||")
+  }
+
   def sanitizeMessage(message: String): String = {
     EmojiParser.parseToAliases(message, EmojiParser.FitzpatrickAction.REMOVE)
+    message.replace("|", "||")
   }
 
-  def splitUpMessage(format: String, name: String, message: String): Seq[String] = {
-    val retArr = mutable.ArrayBuffer.empty[String]
-    val maxTmpLen = 255 - format
-      .replace("%time", Global.getTime)
-      .replace("%user", name)
-      .replace("%message", "")
-      .length
-
-    var tmp = message
-    while (tmp.length > maxTmpLen) {
-      val subStr = tmp.substring(0, maxTmpLen)
-      val spaceIndex = subStr.lastIndexOf(' ')
-      tmp = if (spaceIndex == -1) {
-        retArr += subStr
-        tmp.substring(maxTmpLen)
-      } else {
-        retArr += subStr.substring(0, spaceIndex)
-        tmp.substring(spaceIndex + 1)
-      }
-    }
-
-    if (tmp.nonEmpty) {
-      retArr += tmp
-    }
-
-    retArr
-      .map(message => {
-        val formatted = format
-          .replace("%time", Global.getTime)
-          .replace("%user", name)
-          .replace("%message", message)
-
-        // If the final formatted message is a dot command, it should be disabled. Add a space in front.
-        if (formatted.startsWith(".")) {
-          s" $formatted"
-        } else {
-          formatted
-        }
-      })
-  }
 }

@@ -3,13 +3,13 @@ package wowchat.game
 import java.nio.charset.Charset
 import java.security.MessageDigest
 import java.util.concurrent.{Executors, TimeUnit}
-
 import wowchat.common._
 import wowchat.game.warden.{WardenHandler, WardenPackets}
 import com.typesafe.scalalogging.StrictLogging
 import io.netty.buffer.{ByteBuf, PooledByteBufAllocator}
 import io.netty.channel.{ChannelFuture, ChannelHandlerContext, ChannelInboundHandlerAdapter}
 import wowchat.commands.{CommandHandler, WhoResponse}
+import wowchat.discord.Discord
 
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
@@ -244,6 +244,50 @@ class GamePacketHandler(realmId: Int, realmName: String, sessionKey: Array[Byte]
     None
   }
 
+  protected def sendGuildPromote(target: String): Unit = {
+    ctx.foreach(ctx => {
+      val out = PooledByteBufAllocator.DEFAULT.buffer(64, 64)
+      out.writeBytes(target.getBytes("UTF-8"))
+	  out.writeByte(0)
+      val packet = Packet(CMSG_GUILD_PROMOTE, out)
+      ctx.writeAndFlush(packet)
+
+      logger.info(s"target | bytes: ${target} -- ${target.getBytes("UTF-8")}")
+    })
+  }
+
+  protected def sendGuildDemote(target: String): Unit = {
+    ctx.foreach(ctx => {
+      val out = PooledByteBufAllocator.DEFAULT.buffer(64, 64)
+      out.writeBytes(target.getBytes("UTF-8"))
+	  out.writeByte(0)
+      val packet = Packet(CMSG_GUILD_DEMOTE, out)
+      ctx.writeAndFlush(packet)
+
+      logger.info(s"target | bytes: ${target} -- ${target.getBytes("UTF-8")}")
+    })
+  }
+
+  override def handleGuildPromote(target: String): Option[String] = {
+    if (target.isEmpty) {
+      return Some("Error: No target specified for promotion.")
+    }
+
+    sendGuildPromote(target)
+    None
+    // Some(s"Promotion packet sent for target: $target")
+  }
+
+  override def handleGuildDemote(target: String): Option[String] = {
+    if (target.isEmpty) {
+      return Some("Error: No target specified for demotion.")
+    }
+
+    sendGuildDemote(target)
+    None
+    // Some(s"Demotion packet sent for target: $target")
+  }
+
   protected def buildWhoMessage(name: String): ByteBuf = {
     val byteBuf = PooledByteBufAllocator.DEFAULT.buffer(64, 64)
     byteBuf.writeIntLE(0)  // level min
@@ -261,6 +305,7 @@ class GamePacketHandler(realmId: Int, realmName: String, sessionKey: Array[Byte]
     logger.info("Connected! Authenticating...")
     this.ctx = Some(ctx)
     Global.game = Some(this)
+    runPingExecutor
   }
 
   override def channelRead(ctx: ChannelHandlerContext, msg: scala.Any): Unit = {
@@ -310,7 +355,7 @@ class GamePacketHandler(realmId: Int, realmName: String, sessionKey: Array[Byte]
     val clientSeed = Random.nextInt
     val out = PooledByteBufAllocator.DEFAULT.buffer(200, 400)
     out.writeShortLE(0)
-    out.writeIntLE(WowChatConfig.getBuild)
+    out.writeIntLE(WowChatConfig.getGameBuild)
     out.writeIntLE(0)
     out.writeBytes(account)
     out.writeByte(0)
@@ -334,6 +379,12 @@ class GamePacketHandler(realmId: Int, realmName: String, sessionKey: Array[Byte]
     if (code == AuthResponseCodes.AUTH_OK) {
       logger.info("Successfully logged in!")
       sendCharEnum
+    } else if (code == AuthResponseCodes.AUTH_WAIT_QUEUE) {
+      if (msg.byteBuf.readableBytes() >= 14) {
+        msg.byteBuf.skipBytes(10)
+      }
+      val position = msg.byteBuf.readIntLE
+      logger.info(s"Queue enabled. Position: $position")
     } else {
       logger.error(AuthResponseCodes.getMessage(code))
       ctx.foreach(_.close)
@@ -378,8 +429,12 @@ class GamePacketHandler(realmId: Int, realmName: String, sessionKey: Array[Byte]
 
   private def handle_SMSG_CHAR_ENUM(msg: Packet): Unit = {
     if (receivedCharEnum) {
-      // Do not parse char enum again
-      return
+      if (inWorld) {
+        // Do not parse char enum again if we've already joined the world.
+        return
+      } else {
+        logger.info("Received character enum more than once. Trying to join the world again...")
+      }
     }
     receivedCharEnum = true
     parseCharEnum(msg).fold({
@@ -448,7 +503,6 @@ class GamePacketHandler(realmId: Int, realmName: String, sessionKey: Array[Byte]
     Global.discord.changeRealmStatus(realmName)
     gameEventCallback.connected
     runKeepAliveExecutor
-    runPingExecutor
     runGuildRosterExecutor
     if (guildGuid != 0) {
       queryGuildName
@@ -509,10 +563,15 @@ class GamePacketHandler(realmId: Int, realmName: String, sessionKey: Array[Byte]
       return
     }
 
-    // ignore events from self
-    if (event != GuildEvents.GE_MOTD && Global.config.wow.character.equalsIgnoreCase(messages.head)) {
-      return
-    }
+  // Allow self-processing only for promotion, demotion, and GMOTD events
+  val isSelfEvent = Global.config.wow.character.equalsIgnoreCase(messages.head)
+  val isAllowedSelfEvent = event == GuildEvents.GE_PROMOTED || 
+                           event == GuildEvents.GE_DEMOTED || 
+                           event == GuildEvents.GE_MOTD
+
+  if (isSelfEvent && !isAllowedSelfEvent) {
+    return
+  }
 
     val eventConfigKey = event match {
       case GuildEvents.GE_PROMOTED => "promoted"
@@ -589,7 +648,7 @@ class GamePacketHandler(realmId: Int, realmName: String, sessionKey: Array[Byte]
   }
 
   protected def handle_SMSG_MESSAGECHAT(msg: Packet): Unit = {
-//    logger.debug(s"RECV CHAT: ${ByteUtils.toHexString(msg.byteBuf, true, true)}")
+    logger.debug(s"RECV CHAT: ${ByteUtils.toHexString(msg.byteBuf, true, true)}")
     parseChatMessage(msg).foreach(sendChatMessage)
   }
 
@@ -711,10 +770,10 @@ class GamePacketHandler(realmId: Int, realmName: String, sessionKey: Array[Byte]
         )
         if (approximateMatches.isEmpty) {
           // No approximate matches found.
-          CommandHandler.whoRequest.messageChannel.sendMessage(s"No player named ${CommandHandler.whoRequest.playerName} is currently playing.").queue()
+          Discord.sendMessage(CommandHandler.whoRequest.messageChannel, s"No player named ${CommandHandler.whoRequest.playerName} is currently playing.")
         } else {
           // Send at most 3 approximate matches.
-          approximateMatches.take(3).foreach(CommandHandler.whoRequest.messageChannel.sendMessage(_).queue())
+          approximateMatches.take(3).foreach(Discord.sendMessage(CommandHandler.whoRequest.messageChannel, _))
         }
       } else {
         // Approximate matches found online!
@@ -723,11 +782,11 @@ class GamePacketHandler(realmId: Int, realmName: String, sessionKey: Array[Byte]
             guildInfo,
             guildRoster,
             guildMember => guildMember.name.equalsIgnoreCase(CommandHandler.whoRequest.playerName)
-          ).foreach(CommandHandler.whoRequest.messageChannel.sendMessage(_).queue())
+          ).foreach(Discord.sendMessage(CommandHandler.whoRequest.messageChannel, _))
         })
       }
     } else {
-      handledResponses.foreach(CommandHandler.whoRequest.messageChannel.sendMessage(_).queue())
+      handledResponses.foreach(Discord.sendMessage(CommandHandler.whoRequest.messageChannel, _))
     }
   }
 
@@ -777,13 +836,17 @@ class GamePacketHandler(realmId: Int, realmName: String, sessionKey: Array[Byte]
   }
 
   private def handle_SMSG_INVALIDATE_PLAYER(msg: Packet): Unit = {
-    val guid = msg.byteBuf.readLongLE
+    val guid = parseInvalidatePlayer(msg)
     playerRoster.remove(guid)
+  }
+
+  protected def parseInvalidatePlayer(msg: Packet): Long = {
+    msg.byteBuf.readLongLE
   }
 
   private def handle_SMSG_WARDEN_DATA(msg: Packet): Unit = {
     if (Global.config.wow.platform == Platform.Windows) {
-      logger.error("WARDEN ON WINDOWS IS NOT SUPPORTED! BOT WILL SOON DISCONNECT! TRY TO USE PLATFORM MAC!")
+      //logger.error("WARDEN ON WINDOWS IS NOT SUPPORTED! BOT WILL SOON DISCONNECT! TRY TO USE PLATFORM MAC!")
       return
     }
 

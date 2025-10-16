@@ -44,7 +44,7 @@ class GamePacketDecoder extends ByteToMessageDecoder with GamePackets with Stric
 
     val packet = Packet(newId, decompressed)
 
- //   logger.debug(f"RECV PACKET: $newId%04X - ${ByteUtils.toHexString(decompressed, true, false)}")
+    logger.debug(f"RECV PACKET: $newId%04X - ${ByteUtils.toHexString(decompressed, true, false)}")
 
     out.add(packet)
     size = 0

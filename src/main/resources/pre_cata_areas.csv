@@ -2309,7 +2309,7 @@
 4987,The Ruby Sanctum
 4990,The Twisting Nether
 4999,Twisting Nether
-5000,FFA BG (Test)
+5000,Battle Royal
 5001,Demon's Tears
 5002,Sty'La
 5003,Open World
@@ -2355,7 +2355,7 @@
 6032,Silver Covenant Pavilion
 6033,Sunreaver Pavilion
 6051,The Temple of Kotmogu
-6060,Temple of Kotmogu
+6060,The Temple of Kotmogu
 6061,The Temple of Kotmogu
 6136,The Temple of Kotmogu
 6137,Guardian's Hall
@@ -2398,7 +2398,7 @@
 10013,Mish Faramos
 10014,Dungeon Dev Map
 10015,Raid Dev Map
-10016,Mini Games
+10016,Azzar Faire Mini Games
 10017,Housing Human
 10018,Newnerub
 10019,Azzar Island
@@ -2442,6 +2442,55 @@
 10057,Black Rook Hold
 10058,Black Rook Hold Arena
 10059,The Robodrome
+10060,Pools of the Eidola
+10061,Nightmare's Hand
+10062,Path of Shame
+10065,Stormwind Sewers
+10066,OutdoorDevMap
+10067,MinigamesDevMap
+10068,AzzarEvent
+10069,Bullet Romper
+10070,Eye of the Shadow
+10071,Duck Hunt
+10072,RainBow Race
+10073,Vertical Ascend
+10074,Kul Tiran Ascent
+10075,Mechagnomic Ascent
+10076,Titanic Ascent
+10077,Volcanic Ascent
+10078,Azzar Archipelago
+10079,Azure Bloom
+10080,Tower of the Anointed
+10081,Glorious Azzar Faire
+10082,Forest Cabins
+10083,Fairground Dump
+10084,Sunken Ruins
+10085,Cursed Vrykul Ruins
+10086,Infested Ruins
+10087,Ancient Vrykul Cathedral
+10088,Ala’Taclar
+10089,Great Temple of the Sleeper
+10090,City of Azdalar
+10091,Last Burial Ground
+10092,Crypt of the Skeptic
+10093,Beach Bar
+10094,Showmen's Alley
+10095,Snail Race Alley
+10096,Azzar’fon Mountain
+10097,RobinDevMap
+10098,Emerald Ascent
+10099,Naga Ascent
+10100,Test FFa
+10101,Dark Iron Ascent
+10102,Zandalari Ascent
+10103,Legion Ascent
+10104,Frozen Tears Sanctum
+10105,Frozen Tears Sanctum - First floor
+10106,Frozen Tears Sanctum - Second floor
+10107,Frozen Tears Sanctum - Third floor
+10108,Tinkertech Showdown
+10109,Baradin Hold
+10110,Dawnrise Island
 11211,Ascension
 11220,Stormwind City
 11221,Orgrimmar
@@ -2484,3 +2533,4 @@
 11435,Iskirr Village
 11437,The Forgotten Isle
 11439,Eonar's Cradle
+11440,The Karazhan Crypts

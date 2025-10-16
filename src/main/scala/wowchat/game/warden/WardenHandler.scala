@@ -26,7 +26,7 @@ class WardenHandler(sessionKey: Array[Byte]) extends StrictLogging {
   def handle(msg: Packet): (Int, Option[ByteBuf]) = {
     val length = getEncryptedMessageLength(msg)
     val decrypted = serverCrypt.crypt(msg.byteBuf, length)
-//    logger.debug(s"WARDEN PACKET ($length): ${ByteUtils.toHexString(decrypted, true, false)}")
+    logger.debug(s"WARDEN PACKET ($length): ${ByteUtils.toHexString(decrypted, true, false)}")
 
     val id = decrypted.readByte
 

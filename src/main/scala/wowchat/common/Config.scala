@@ -1,7 +1,6 @@
 package wowchat.common
 
 import java.io.File
-import java.util
 
 import wowchat.common.ChatDirection.ChatDirection
 import wowchat.common.WowExpansion.WowExpansion
@@ -12,8 +11,8 @@ import scala.collection.JavaConverters._
 import scala.reflect.runtime.universe.{TypeTag, typeOf}
 
 case class WowChatConfig(discord: DiscordConfig, wow: Wow, guildConfig: GuildConfig, channels: Seq[ChannelConfig], filters: Option[FiltersConfig])
-case class DiscordConfig(token: String, enableDotCommands: Boolean, dotCommandsWhitelist: Set[String], bannedInviteList: Set[String], enableInviteChannels: Set[String], enableKickChannels: Set[String], enableWhoGmotdChannels: Set[String], enableTagFailedNotifications: Boolean, specLengthOption: Int)
-case class Wow(locale: String, platform: Platform.Value, build: Option[Int], realmlist: RealmListConfig, account: Array[Byte], password: String, character: String, enableServerMotd: Boolean)
+case class DiscordConfig(token: String, enableDotCommands: Boolean, dotCommandsWhitelist: Set[String], bannedInviteList: Set[String], enableInviteChannels: Set[String], enableKickChannels: Set[String], enablePromoteChannels: Set[String], enableDemoteChannels: Set[String], enableWhoGmotdChannels: Set[String], enableTagFailedNotifications: Boolean, specLengthOption: Int)
+case class Wow(locale: String, platform: Platform.Value, realmBuild: Option[Int], gameBuild: Option[Int], realmlist: RealmListConfig, account: Array[Byte], password: Array[Byte], character: String, enableServerMotd: Boolean)
 case class RealmListConfig(name: String, host: String, port: Int)
 case class GuildConfig(notificationConfigs: Map[String, GuildNotificationConfig])
 case class GuildNotificationConfig(enabled: Boolean, format: String, channel: Option[String])
@@ -49,26 +48,24 @@ object WowChatConfig extends GamePackets {
       DiscordConfig(
         discordConf.getString("token"),
         getOpt[Boolean](discordConf, "enable_dot_commands").getOrElse(true),
-        getOpt[util.List[String]](discordConf, "dot_commands_whitelist")
-          .getOrElse(new util.ArrayList[String]()).asScala.map(_.toLowerCase).toSet,
-        getOpt[util.List[String]](discordConf, "banned_invite_list")
-          .getOrElse(new util.ArrayList[String]()).asScala.map(_.toLowerCase).toSet,
-        getOpt[util.List[String]](discordConf, "enable_invite_channels")
-          .getOrElse(new util.ArrayList[String]()).asScala.map(_.toLowerCase).toSet,
-        getOpt[util.List[String]](discordConf, "enable_kick_channels")
-          .getOrElse(new util.ArrayList[String]()).asScala.map(_.toLowerCase).toSet,
-        getOpt[util.List[String]](discordConf, "enable_who_gmotd_channels")
-          .getOrElse(new util.ArrayList[String]()).asScala.map(_.toLowerCase).toSet,
+        getOpt[Set[String]](discordConf, "dot_commands_whitelist").getOrElse(Set()),
+        getOpt[Set[String]](discordConf, "banned_invite_list").getOrElse(Set()),
+        getOpt[Set[String]](discordConf, "enable_invite_channels").getOrElse(Set()),
+        getOpt[Set[String]](discordConf, "enable_kick_channels").getOrElse(Set()),
+        getOpt[Set[String]](discordConf, "enable_promote_channels").getOrElse(Set()),
+        getOpt[Set[String]](discordConf, "enable_demote_channels").getOrElse(Set()),
+        getOpt[Set[String]](discordConf, "enable_who_gmotd_channels").getOrElse(Set()),
         getOpt[Boolean](discordConf, "enable_tag_failed_notifications").getOrElse(true),
         getOpt[Int](discordConf, "spec_len").getOrElse(0)
       ),
       Wow(
         getOpt[String](wowConf, "locale").getOrElse("enUS"),
         Platform.valueOf(getOpt[String](wowConf, "platform").getOrElse("Mac")),
-        getOpt[Int](wowConf, "build"),
+        getOpt[Int](wowConf, "realm_build").orElse(getOpt[Int](wowConf, "build")),
+        getOpt[Int](wowConf, "game_build").orElse(getOpt[Int](wowConf, "build")),
         parseRealmlist(wowConf),
-        convertToUpper(wowConf.getString("account")),
-        wowConf.getString("password"),
+        wowConf.getString("account").getBytes("UTF-8"),
+        wowConf.getString("password").getBytes("UTF-8"),
         wowConf.getString("character"),
         getOpt[Boolean](wowConf, "enable_server_motd").getOrElse(true)
       ),
@@ -81,41 +78,32 @@ object WowChatConfig extends GamePackets {
   lazy val getVersion = version
   lazy val getExpansion = expansion
 
-  lazy val getBuild: Int = {
-    Global.config.wow.build.getOrElse(
-      version match {
-        case "1.6.1" => 4544
-        case "1.6.2" => 4565
-        case "1.6.3" => 4620
-        case "1.7.1" => 4695
-        case "1.8.4" => 4878
-        case "1.9.4" => 5086
-        case "1.10.2" => 5302
-        case "1.11.2" => 5464
-        case "1.12.1" => 5875
-        case "1.12.2" => 6005
-        case "1.12.3" => 6141
-        case "2.4.3" => 8606
-        case "3.2.2" => 10505
-        case "3.3.0" => 11159
-        case "3.3.2" => 11403
-        case "3.3.3" => 11723
-        case "3.3.5" => 12340
-        case "4.3.4" => 15595
-        case "5.4.8" => 18414
-        case _ => throw new IllegalArgumentException(s"Build $version not supported!")
-      })
-  }
+  private lazy val buildFromVersion: Int =
+    version match {
+      case "1.6.1" => 4544
+      case "1.6.2" => 4565
+      case "1.6.3" => 4620
+      case "1.7.1" => 4695
+      case "1.8.4" => 4878
+      case "1.9.4" => 5086
+      case "1.10.2" => 5302
+      case "1.11.2" => 5464
+      case "1.12.1" => 5875
+      case "1.12.2" => 6005
+      case "1.12.3" => 6141
+      case "2.4.3" => 8606
+      case "3.2.2" => 10505
+      case "3.3.0" => 11159
+      case "3.3.2" => 11403
+      case "3.3.3" => 11723
+      case "3.3.5" => 12340
+      case "4.3.4" => 15595
+      case "5.4.8" => 18414
+      case _ => throw new IllegalArgumentException(s"Build $version not supported!")
+    }
 
-  private def convertToUpper(account: String): Array[Byte] = {
-    account.map(c => {
-      if (c >= 'a' && c <= 'z') {
-        c.toUpper
-      } else {
-        c
-      }
-    }).getBytes("UTF-8")
-  }
+  lazy val getRealmBuild: Int = Global.config.wow.realmBuild.getOrElse(buildFromVersion)
+  lazy val getGameBuild: Int = Global.config.wow.gameBuild.getOrElse(buildFromVersion)
 
   private def parseRealmlist(wowConf: Config): RealmListConfig = {
     val realmlist = wowConf.getString("realmlist")
@@ -195,7 +183,7 @@ object WowChatConfig extends GamePackets {
     filtersConf.map(config => {
       FiltersConfig(
         getOpt[Boolean](config, "enabled").getOrElse(false),
-        getOpt[util.List[String]](config, "patterns").getOrElse(new util.ArrayList[String]()).asScala
+        getOpt[Seq[String]](config, "patterns").getOrElse(Seq())
       )
     })
   }
@@ -219,6 +207,10 @@ object WowChatConfig extends GamePackets {
           }
         } else if (typeOf[T] =:= typeOf[String]) {
           cfg.getString(path)
+        } else if (typeOf[T] =:= typeOf[Seq[String]]) {
+          cfg.getStringList(path).asScala.map(_.toLowerCase)
+        } else if (typeOf[T] =:= typeOf[Set[String]]) {
+          cfg.getStringList(path).asScala.map(_.toLowerCase).toSet
         } else {
           cfg.getAnyRef(path)
         }).asInstanceOf[T]

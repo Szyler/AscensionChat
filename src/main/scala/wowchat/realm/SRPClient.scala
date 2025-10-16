@@ -50,10 +50,8 @@ class SRPClient {
     md.digest()
   }
 
-  def step1(account: Array[Byte], password: String,
+  def step1(account: Array[Byte], password: Array[Byte],
             B: BigNumber, g: BigNumber, N: BigNumber, s: BigNumber): Unit = {
-    val passwordUpper = password.toUpperCase
-
     A = g.modPow(a, N)
 
     md.update(A.asByteArray(32))
@@ -61,7 +59,7 @@ class SRPClient {
 
     val u = BigNumber(md.digest, true)
 
-    val user = (account :+ ':'.toByte) ++ passwordUpper.getBytes("UTF-8")
+    val user = (account :+ ':'.toByte) ++ password
     md.update(user)
     val p = md.digest
 

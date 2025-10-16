@@ -7,3 +7,4 @@ GreetBot
 .ammonite/
 metals.sbt
 .vscode/
+hex_string_convert.py

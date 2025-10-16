@@ -32,7 +32,19 @@ class RealmPacketDecoder extends ByteToMessageDecoder with StrictLogging {
           in.skipBytes(1)
           val result = in.readByte
           size = if (RealmPackets.AuthResult.isSuccess(result)) {
-            118
+            in.skipBytes(115)
+            val securityFlags = in.readByte
+            var securityLength = 0
+            if ((securityFlags & 0x01) == 0x01) { // PIN
+              securityLength += 20
+            }
+            if ((securityFlags & 0x02) == 0x02) { // Matrix
+              securityLength += 12
+            }
+            if ((securityFlags & 0x04) == 0x04) { // Security token
+              securityLength += 1
+            }
+            118 + securityLength
           } else {
             2
           }
@@ -47,7 +59,7 @@ class RealmPacketDecoder extends ByteToMessageDecoder with StrictLogging {
           in.markReaderIndex
           val result = in.readByte
           size = if (RealmPackets.AuthResult.isSuccess(result)) {
-            if (WowChatConfig.getExpansion == WowExpansion.Vanilla) 25 else 31
+            43 // Ascension protocol length
           } else {
             // A failure authentication result should be 1 byte in length for vanilla and 3 bytes for other expansions.
             // Some servers send back a malformed 1 byte response even for later expansions.
@@ -71,7 +83,7 @@ class RealmPacketDecoder extends ByteToMessageDecoder with StrictLogging {
     val byteBuf = in.readBytes(size)
     val packet = Packet(id, byteBuf)
 
-//    logger.debug(f"RECV REALM PACKET: $id%04X - ${ByteUtils.toHexString(byteBuf, true, false)}")
+    logger.debug(f"RECV REALM PACKET: $id%04X - ${ByteUtils.toHexString(byteBuf, true, false)}")
 
     out.add(packet)
     size = 0

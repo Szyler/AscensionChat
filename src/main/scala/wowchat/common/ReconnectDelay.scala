@@ -15,7 +15,7 @@ class ReconnectDelay extends StrictLogging {
       reconnectDelay = Some(10)
 
       val result = reconnectDelay.get
-//      logger.debug(s"GET RECONNECT DELAY $result")
+      logger.debug(s"GET RECONNECT DELAY $result")
       result
     }
   }

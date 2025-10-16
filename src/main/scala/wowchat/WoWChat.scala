@@ -13,7 +13,7 @@ import scala.io.Source
 
 object WoWChat extends StrictLogging {
 
-  private val RELEASE = "v2.1.0"
+  private val RELEASE = "v3.0.2"
 
   def main(args: Array[String]): Unit = {
     logger.info(s"Running WoWChat - $RELEASE")
@@ -25,7 +25,11 @@ object WoWChat extends StrictLogging {
     }
     Global.config = WowChatConfig(confFile)
 
-    checkForNewVersion
+    try {
+//      checkForNewVersion
+    } catch {
+      case e: Exception => logger.error("Failed to check for a new version!", e)
+    }
 
     val gameConnectionController: CommonConnectionCallback = new CommonConnectionCallback {
 
